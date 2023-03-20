@@ -1,0 +1,101 @@
+---
+title: 'Example: NSW BMI Study'
+author: "Brad Wakefield"
+date: "2023-03-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+# Load in Data
+NSW_income <- read_csv('data/NSW_income.csv')
+# Code Categorical Data
+NSW_income <- NSW_income %>% 
+  mutate(sex = factor(sex),occupation = factor(occupation)) %>% 
+  rename(person_id = `...1`)
+# Compute Household level data set
+household <- NSW_income %>% group_by(house_id) %>%
+  summarise(num_ppl = NROW(income),house_income = sum(income),
+            median_income = median(income))
+# Read in address info
+house_coord <- read_csv('data/house_coord.csv')
+house_coord <- house_coord %>% 
+  select(house_id, ADDRESS_DEFAULT_GEOCODE_PID,LONGITUDE,LATITUDE)
+# Link addresses to data
+household <- inner_join(household,house_coord,by="house_id")
+# Load in LGA info
+library(sf)
+unzip('data/NSW_LGA_polygon.zip',exdir = "data/")
+nsw_lga <- st_read("data/NSW_LGA_polygon/nsw_lga.shp")
+# Cross reference LGA with address
+household <- st_as_sf(household,coords = c("LONGITUDE","LATITUDE"),
+                      crs = st_crs(nsw_lga),agr="constant") %>% 
+  mutate(intersection = as.integer(st_intersects(geometry, nsw_lga)),
+         lga = if_else(is.na(intersection), '',nsw_lga$LGA_NAME[intersection])) 
+
+# Load in BMI study data
+bmi_study <- readRDS('data/bmi_study.rds')
+# Load in Remoteness data set
+unzip('data/ra_2016_aust_shape.zip',exdir = 'data/Remote')
+nsw_ra <- st_read("data/Remote/RA_2016_AUST.shp") %>% 
+  filter(STE_NAME16 == "New South Wales")
+# Socio-economic classification
+sec_const <- 0.557
+#Daily Income Thresholds per person
+sec_cuts <- c(0,5,20,50,100,1000)
+sec_labels <- c("Low","Med-Low","Med","Med-High","High")
+
+# Link BMI data with income and household data, compute SEC
+bmi_study <- bmi_study %>% 
+  inner_join(NSW_income %>%select(person_id,age,sex,house_id),
+             by = c("person_id")) %>% 
+  inner_join(household, by = c("house_id")) %>%
+  select(-c("median_income","ADDRESS_DEFAULT_GEOCODE_PID")) %>% 
+  mutate(sec = factor(cut_interval(sec_const*house_income/(7*num_ppl),
+                                   n=5,breaks = sec_cuts,labels=sec_labels)))
+# Cross check with remoteness region
+bmi_study_sf <- bmi_study %>% 
+  mutate(intersection = as.integer(st_intersects(geometry, nsw_ra)),
+         ra = if_else(is.na(intersection), '', nsw_ra$RA_NAME16[intersection]))
+# Add to data set
+bmi_study <- bmi_study %>% mutate(ra = factor(bmi_study_sf$ra))
+# Recode remoteness
+levels(bmi_study$ra) <- c("Regional","City","Regional","Remote","Remote")
+
+#Restructure into long form
+bmi_study_long <- bmi_study %>% 
+  pivot_longer(cols = starts_with("month"),names_to = "month",
+               names_prefix = "month",values_to = "bmi_change") %>% 
+  mutate(month = as.numeric(month))
+
+# Compute counts of each category
+freq <- bmi_study_long %>% group_by(treat,sex,sec,ra) %>% count() %>% 
+  mutate(n=n/5) %>% ungroup() %>% complete(treat,sex,sec,ra,fill=list(n=0)) %>%
+  pivot_wider(names_from = c(sex,treat), values_from = n) %>% 
+  rename(`S-E Status` = sec, Remoteness = ra) %>%
+         nest(Control = ends_with("Control"),
+               `Diet Therapy` = ends_with("Diet Therapy"),
+               `Diet Therapy & Exercise` = 
+                 ends_with("Diet & Exercise Therapy"))
+knitr::kable(freq)
+
+# Plot data
+ggplot(bmi_study_long,aes(x=month,y=bmi_change,col=treat)) + 
+  geom_smooth(formula = 'y~x',method='lm') + 
+  geom_line(aes(group=person_id),alpha=0.1) + 
+  facet_grid(.~treat) + xlab('Month') + ylab('Change in BMI')+
+  labs(x = "Month", y= "Change in BMI",col = "Treatment")
+
+library(lme4)
+library(lmerTest)
+# Fit model
+model <- lmer(bmi_change ~ treat*month + sex + sec + ra +(1|person_id),
+              data=bmi_study_long)
+sum_model <- summary(model)
+# Output results
+knitr::kable(sum_model$coefficients, digits = 3, caption ="")
+```

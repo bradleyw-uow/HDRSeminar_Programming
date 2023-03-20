@@ -1,0 +1,52 @@
+.gdbar img {
+width: 200px !important;
+height: 59px !important;
+}
+
+slides > slide:not(.nobackground):before {
+  width: 200px;
+  height: 59px;
+  background-size: 220px 65px;
+}
+
+slides > slide {
+  font-family: "Montserrat", Times, serif;
+}
+
+h2{
+  font-family: "Montserrat", Times, serif;
+  font-weight: bold;
+  color: #001641;
+}
+
+p{
+   color: #001641;
+}
+
+h3{
+  font-family: "Montserrat", Times, serif;
+  font-weight: bold;
+  color: #ED0A00;
+}
+
+h4{
+  font-family: "Montserrat", Times, serif;
+  font-weight: bold;
+  color: #0033FF;
+}
+
+slides > slide.dark {
+  background-image: url(styles/DividerSlideBackgroundFill.png) !important;
+}
+
+slides>slide.title-slide {
+    background-image: url('styles/TitleSlideBackgroundFill.png');
+    background-size: 100% 100%;
+}
+slides > slide.title-slide hgroup h1 {  
+  color: #F2F2F2;
+  font-size: 40pt;
+}
+slides > slide.title-slide p {  
+  color: #F2F2F2;
+}
